@@ -12,19 +12,25 @@ import tempfile
 from pathlib import Path
 import weasyprint
 from jinja2 import Template
-
+from dotenv import load_dotenv
 # LangChain imports
-from langchain_community.llms import Ollama
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from fastapi.middleware.cors import CORSMiddleware
+load_dotenv()
 
 os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY","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")
 os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2", "true")
 os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "Resume")
 
-app = FastAPI(title="Resume Maker API with LangChain Integration", version="2.1.0")
+# Groq API configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY environment variable is required")
+
+app = FastAPI(title="Resume Maker API with Groq Integration", version="2.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -331,23 +337,23 @@ class HTMLResumeGenerator:
                 color: #000;
                 max-width: 210mm;
                 margin: 0 auto;
-                padding: 0mm;
+                padding: 2.5mm;
                 background: #fff;
                 font-size: 12px;
             }
             
             .header {
                 text-align: center;
-                padding-bottom: 15px;
+                padding-bottom: 5px;
                 border-bottom: 1px solid #000;
-                margin-bottom: 20px;
+                margin-bottom: 8px;
             }
             
             .name {
                 font-size: 20px;
                 font-weight: bold;
                 color: #000;
-                margin-bottom: 8px;
+                margin-bottom: 3px;
                 letter-spacing: 1px;
             }
             
@@ -368,7 +374,7 @@ class HTMLResumeGenerator:
             }
             
             .section {
-                margin-bottom: 18px;
+                margin-bottom: 8px;
             }
             
             .section-title {
@@ -378,23 +384,23 @@ class HTMLResumeGenerator:
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 border-bottom: 1px solid #000;
-                padding-bottom: 2px;
-                margin-bottom: 10px;
+                padding-bottom: 1px;
+                margin-bottom: 5px;
             }
             
             .summary {
                 text-align: justify;
                 line-height: 1.4;
                 color: #000;
-                margin-bottom: 5px;
+                margin-bottom: 2px;
             }
             
             .experience-item, .education-item, .project-item {
-                margin-bottom: 15px;
+                margin-bottom: 6px;
             }
             
             .item-header {
-                margin-bottom: 5px;
+                margin-bottom: 2px;
             }
             
             .item-title {
@@ -424,12 +430,12 @@ class HTMLResumeGenerator:
             }
             
             .bullet-points {
-                margin-top: 5px;
-                margin-left: 20px;
+                margin-top: 2px;
+                margin-left: 15px;
             }
             
             .bullet-point {
-                margin-bottom: 3px;
+                margin-bottom: 1px;
                 text-align: justify;
                 line-height: 1.4;
                 list-style-type: disc;
@@ -438,9 +444,9 @@ class HTMLResumeGenerator:
             
             .bullet-points strong {
                 font-weight: bold;
-                margin-bottom: 3px;
+                margin-bottom: 1px;
                 display: block;
-                margin-left: -20px;
+                margin-left: -15px;
             }
             
             .skills-grid {
@@ -448,7 +454,7 @@ class HTMLResumeGenerator:
             }
             
             .skill-category {
-                margin-bottom: 8px;
+                margin-bottom: 3px;
             }
             
             .skill-category h4 {
@@ -512,7 +518,7 @@ class HTMLResumeGenerator:
             @media print {
                 body {
                     font-size: 11px;
-                    padding: 0mm;
+                    padding: 2mm;
                 }
                 
                 .name {
@@ -664,7 +670,7 @@ class HTMLResumeGenerator:
             """
 
 class ResumeOptimizer:
-    """Enhanced Resume Optimizer with LangChain integration"""
+    """Enhanced Resume Optimizer with Groq integration"""
     def __init__(self):
         self.action_verbs = [
             "Achieved", "Developed", "Implemented", "Led", "Managed", "Created",
@@ -678,7 +684,11 @@ class ResumeOptimizer:
         ]
         
         # Initialize LangChain components
-        self.llm = Ollama(model="llama3.2:3b", temperature=0.3)
+        self.llm = ChatGroq(
+            model="llama-3.3-70b-versatile",  # or "mixtral-8x7b-32768", "gemma-7b-it"
+            temperature=0.3,
+            groq_api_key=GROQ_API_KEY
+        )
         self.output_parser = StrOutputParser()
 
     def extract_keywords_from_job_description(self, job_description: str) -> List[str]:
@@ -1303,16 +1313,23 @@ async def delete_resume(resume_id: str):
 async def health_check():
     """Health check endpoint"""
     try:
-        # Test Ollama connection
-        response = requests.get("http://localhost:11434/api/tags", timeout=5)
-        ollama_status = "healthy" if response.status_code == 200 else "unhealthy"
-    except:
-        ollama_status = "unhealthy"
+        # Test Groq API connection
+        test_llm = ChatGroq(
+            model="llama3-8b-8192",
+            temperature=0.1,
+            groq_api_key=GROQ_API_KEY
+        )
+        # Simple test prompt
+        response = test_llm.invoke("Hello")
+        groq_status = "healthy" if response else "unhealthy"
+    except Exception as e:
+        print(f"Groq API test failed: {e}")
+        groq_status = "unhealthy"
     
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "ollama_status": ollama_status,
+        "groq_status": groq_status,
         "total_resumes": len(resume_store)
     }
 
@@ -1333,4 +1350,6 @@ async def cleanup_old_files():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    port = int(os.getenv("RESUME_PORT", os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=port)

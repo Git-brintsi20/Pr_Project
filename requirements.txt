@@ -1,0 +1,28 @@
+# FastAPI and core dependencies
+fastapi
+uvicorn[standard]
+pydantic
+requests
+python-multipart
+
+# Resume generation dependencies (temp4.py)
+jinja2
+weasyprint
+langchain-core
+langchain-groq
+python-dotenv
+
+# ATS analysis dependencies (ats3.py)
+PyPDF2
+python-docx
+spacy
+nltk
+scikit-learn
+numpy
+aiohttp
+beautifulsoup4
+PyMuPDF
+groq
+
+# Additional dependencies
+python-dateutil

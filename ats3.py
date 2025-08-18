@@ -10,6 +10,7 @@ import io
 from datetime import datetime
 import requests
 import time
+import random
 import spacy
 import nltk
 from nltk.corpus import stopwords
@@ -27,6 +28,8 @@ from urllib.parse import urlparse, parse_qs
 import bs4
 from bs4 import BeautifulSoup
 import fitz  # PyMuPDF for better PDF URL extraction
+import os
+from groq import Groq
 
 # Download required NLTK data
 def download_nltk_data():
@@ -103,10 +106,18 @@ class CodingProfileAnalysis(BaseModel):
     areas_for_improvement: List[str]
 
 class AdvancedATSAnalyzer:
-    def __init__(self, ollama_url="http://localhost:11434"):
-        self.ollama_url = ollama_url
-        self.preferred_models = ["qwen2.5:3b", "llama3.2:3b", "phi3:mini"]
-        self.model_name = None
+    def __init__(self, groq_api_key=None):
+        # Initialize Groq client
+        self.groq_api_key = groq_api_key or os.getenv("GROQ_API_KEY")
+        if self.groq_api_key:
+            self.groq_client = Groq(api_key=self.groq_api_key)
+            self.model_name = "llama-3.3-70b-versatile"  # Default Groq model
+        else:
+            self.groq_client = None
+            self.model_name = None
+            logger.warning("No Groq API key provided. Using rule-based analysis only.")
+        
+        self.preferred_models = ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
         # Load spaCy model
         try:
@@ -247,85 +258,62 @@ class AdvancedATSAnalyzer:
             }
         }
         
-        # Initialize model selection
-        self.select_best_available_model()
+        # Test connection if API key is available
+        if self.groq_client:
+            pass  # Client initialized silently
+        else:
+            logger.info("Using advanced rule-based analysis only.")
     
-    def test_ollama_connection(self) -> bool:
-        """Test if Ollama is accessible"""
+    def test_groq_connection(self) -> bool:
+        """Test if Groq API is accessible"""
+        if not self.groq_client:
+            return False
         try:
-            response = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
-            return response.status_code == 200
-        except:
+            # Try a simple completion to test the connection
+            response = self.groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": "test"}],
+                model=self.model_name,
+                max_tokens=1
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Groq connection test failed: {e}")
             return False
     
     def get_available_models(self) -> List[str]:
-        """Get list of available models from Ollama"""
-        try:
-            response = requests.get(f"{self.ollama_url}/api/tags", timeout=10)
-            if response.status_code == 200:
-                models = response.json().get('models', [])
-                return [model['name'] for model in models]
-            return []
-        except:
-            return []
+        """Get list of available Groq models"""
+        return self.preferred_models
     
-    def select_best_available_model(self):
-        """Select the best available model for analysis"""
-        if not self.test_ollama_connection():
-            logger.info("Ollama not accessible. Using advanced rule-based analysis.")
-            return
-        
-        available_models = self.get_available_models()
-        logger.info(f"Available models: {available_models}")
-        
-        for preferred_model in self.preferred_models:
-            for available_model in available_models:
-                if preferred_model in available_model:
-                    self.model_name = available_model
-                    logger.info(f"Selected model: {self.model_name}")
-                    return
-        
-        if available_models:
-            self.model_name = available_models[0]
-            logger.info(f"Using available model: {self.model_name}")
-        else:
-            logger.info("No models available. Using advanced rule-based analysis.")
-    
-    async def call_ollama_async(self, prompt: str, max_tokens: int = 1500) -> str:
-        """Async call to Ollama API"""
-        if not self.model_name:
-            return "Error: No model available"
+    async def call_groq_async(self, prompt: str, max_tokens: int = 1500) -> str:
+        """Async call to Groq API with delay"""
+        if not self.groq_client or not self.model_name:
+            return "Error: No Groq model available"
         
         try:
+            # Add random delay between 45-60 seconds
+            delay_time = random.uniform(45, 60)
+            logger.info(f"Adding delay of {delay_time:.2f} seconds before API call...")
+            await asyncio.sleep(delay_time)
+            
+            # Make the actual API call
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: requests.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={
-                        "model": self.model_name,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.1,
-                            "top_p": 0.9,
-                            "num_predict": max_tokens,
-                            "num_ctx": 2048,
-                            "num_gpu": 1,
-                            "num_thread": 4,
-                        }
-                    },
-                    timeout=180
+                lambda: self.groq_client.chat.completions.create(
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    model=self.model_name,
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                    top_p=0.9
                 )
             )
             
-            if response.status_code == 200:
-                result = response.json()
-                return result.get("response", "Error: Empty response")
-            else:
-                return f"Error: HTTP {response.status_code}"
+            return response.choices[0].message.content
                 
         except Exception as e:
+            logger.error(f"Groq API call failed: {str(e)}")
             return f"Error: {str(e)}"
     
     def safe_word_tokenize(self, text: str) -> List[str]:
@@ -2038,6 +2026,19 @@ class AdvancedATSAnalyzer:
             return max(industry_scores, key=industry_scores.get)
         return "general"
     
+    def detect_industry(self, text: str) -> str:
+        """Detect the most likely industry based on resume content"""
+        text_lower = text.lower()
+        industry_scores = {}
+        
+        for industry, keywords in self.industry_keywords.items():
+            score = sum(1 for keyword in keywords if keyword.lower() in text_lower)
+            industry_scores[industry] = score
+        
+        if industry_scores:
+            return max(industry_scores, key=industry_scores.get)
+        return ""
+    
     async def analyze_resume_comprehensive(self, text: str, job_description: str = "", filename: str = "", file_content: bytes = None) -> Dict[str, Any]:
         """Main comprehensive analysis function with coding profile analysis"""
         
@@ -2134,7 +2135,7 @@ Provide detailed suggestions for:
 
 Be specific and actionable with examples."""
                 
-                llm_response = await self.call_ollama_async(prompt, 800)
+                llm_response = await self.call_groq_async(prompt, 800)
                 if "Error" not in llm_response:
                     llm_enhancement = llm_response
             except Exception as e:
@@ -2303,7 +2304,7 @@ async def root():
         "message": "Advanced ATS Resume Score Analyzer with Coding Profiles",
         "version": "6.0.0",
         "current_model": analyzer.model_name or "Advanced Rule-Based Analysis",
-        "ollama_status": "connected" if analyzer.model_name else "using_advanced_rules",
+        "groq_status": "connected" if analyzer.model_name else "using_advanced_rules",
         "features": [
             "Real NLP-based analysis",
             "Advanced keyword matching",
@@ -2326,11 +2327,11 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    ollama_status = "connected" if analyzer.test_ollama_connection() else "disconnected"
+    groq_status = "connected" if analyzer.test_groq_connection() else "disconnected"
     
     return {
         "status": "healthy",
-        "ollama_status": ollama_status,
+        "groq_status": groq_status,
         "current_model": analyzer.model_name or "Advanced Rules",
         "nlp_ready": analyzer.nlp is not None,
         "timestamp": datetime.now().isoformat()
@@ -2651,10 +2652,9 @@ if __name__ == "__main__":
     import uvicorn
     
     print("🚀 Starting Advanced ATS Resume Analyzer with Coding Profiles...")
-    print(f"📊 Analysis method: {'LLM Enhanced' if analyzer.model_name else 'Advanced Rule-Based'}")
     print(f"🧠 NLP Ready: {'Yes' if analyzer.nlp else 'Limited'}")
     print("🔧 Features: Real analysis methods, comprehensive scoring, batch processing")
-    print("�‍💻 NEW: Coding profiles analysis (LeetCode, Codeforces, CodeChef)")
+    print("👨‍💻 NEW: Coding profiles analysis (LeetCode, Codeforces, CodeChef)")
     print("🎯 NEW: Technical interview readiness assessment")
     print("📈 Endpoints: /batch-analyze, /compare, /analytics, /keywords/{industry}")
     print("💻 NEW Endpoints: /analyze-coding-profile, /extract-coding-profiles, /coding-requirements/{role}")
@@ -2662,15 +2662,17 @@ if __name__ == "__main__":
     # Install required packages reminder
     print("\n📦 Required packages:")
     print("pip install fastapi uvicorn python-docx PyPDF2 spacy nltk scikit-learn numpy")
-    print("pip install aiohttp beautifulsoup4 PyMuPDF")  # New dependencies
+    print("pip install aiohttp beautifulsoup4 PyMuPDF")
     print("python -m spacy download en_core_web_sm")
     
     print("\n🌐 Server starting on port 8001...")
     
+    import os
+    port = int(os.getenv("ATS_PORT", os.getenv("PORT", 8001)))
     uvicorn.run(
         "ats3:app",  # Updated filename
         host="0.0.0.0",
-        port=8001,
-        reload=True,
+        port=port,
+        reload=False,  # Set to False for production
         log_level="info"
     )
