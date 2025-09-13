@@ -129,13 +129,14 @@ Analytics tracking
 Multi-format export (PDF, JSON, XML)
 
 Contributors
-👨‍💻 [Your Name] - Fullstack & Security
-👩‍💻 [Name] - Frontend Lead
-🧑‍💻 [Name] - ML Lead
-👨‍💻 [Name] - ML Lead
-👩‍💻 [Name] - Fullstack Developer
+👨‍💻 Harshita Bhanu - Fullstack & Security
+👩‍💻 Karan Pawar - Frontend Lead
+🧑‍💻 Divanshu Bhargava - ML Lead
+👨‍💻 Aayushi Thakre - ML Lead
+👩‍💻 Aryan Kesarwani - Fullstack Developer
 
 License
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 <div align="center"> <sub>Built with ❤️ by Team DevPortfolio | Capstone Project 2023</sub> </div> 
+
